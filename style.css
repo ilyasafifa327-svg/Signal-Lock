@@ -1,0 +1,779 @@
+/* =========================================================
+   SIGNAL LOCK – Guess the Number
+   ---------------------------------------------------------
+   1. Design tokens (colours)
+   2. Page + background
+   3. Stat pills (attempts / best)
+   4. Title
+   5. The dial
+   6. Result + temperature + hint
+   7. Input + buttons
+   8. Animations
+   9. Responsive + reduced motion
+   ========================================================= */
+
+/* ---------- 1. Design tokens ---------- */
+:root {
+  --bg: #08090d;
+  --panel: #0f1117;
+  --line: #1c2130;
+  --text: #f3f5f9;
+  --muted: #8a93a6;
+
+  --accent: #22d3ee;   /* cyan – the one accent colour */
+  --low: #fbbf24;      /* too low  → yellow/orange */
+  --high: #ff5a4d;     /* too high → red/orange */
+  --win: #34d399;      /* correct  → green */
+
+  /* --state is the colour for the CURRENT situation.
+     It changes when the body's data-state changes. */
+  --state: var(--accent);
+}
+
+body[data-state="low"]  { --state: var(--low); }
+body[data-state="high"] { --state: var(--high); }
+body[data-state="win"]  { --state: var(--win); }
+
+/* ---------- 2. Page + background ---------- */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100%; }
+
+body {
+  font-family: "Sora", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;            /* never allow sideways scrolling */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Faint targeting grid that fades out toward the edges */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(circle at 50% 45%, #000 0%, transparent 70%);
+          mask-image: radial-gradient(circle at 50% 45%, #000 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Two big blurred blobs that slowly drift around */
+.glow {
+  position: fixed;
+  width: 55vmax;
+  height: 55vmax;
+  border-radius: 50%;
+  background-color: var(--state);
+  filter: blur(110px);
+  opacity: 0.16;
+  pointer-events: none;
+  z-index: 0;
+  transition: background-color 0.6s ease;
+}
+.glow-a { top: -25vmax; left: -15vmax; animation: drift-a 22s ease-in-out infinite alternate; }
+.glow-b { bottom: -30vmax; right: -20vmax; animation: drift-b 28s ease-in-out infinite alternate; opacity: 0.1; }
+
+.app {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 96px 20px 40px;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+/* Used for the Play Again fade-out / fade-in */
+.app.fading { opacity: 0; transform: scale(0.96); }
+
+/* ---------- 3. Stat pills ---------- */
+.stats {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  padding: 20px 24px;
+  pointer-events: none;
+}
+
+.pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 20px 8px 8px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: box-shadow 0.4s ease, border-color 0.4s ease;
+}
+.pill-best { padding: 8px 8px 8px 20px; }
+
+/* Round icon badge – changes colour with the game state */
+.pill-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  color: var(--state);
+  background: color-mix(in srgb, var(--state) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--state) 40%, transparent);
+  transition: color 0.5s ease, background 0.5s ease, box-shadow 0.5s ease;
+}
+.pill-icon svg { width: 24px; height: 24px; }
+
+.pill-text { display: flex; flex-direction: column; text-align: left; gap: 3px; }
+.pill-text-right { text-align: right; }
+.pill-label { font-size: 14px; font-weight: 500; color: var(--muted); line-height: 1; }
+.pill-value {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  display: inline-block;
+}
+.pill-value.bump { animation: bump 0.5s cubic-bezier(0.2, 1.5, 0.4, 1); }
+
+/* When you set a new best score, the pill lights up */
+.pill-best.celebrate {
+  border-color: var(--win);
+  animation: pill-glow 1.8s ease;
+}
+.pill-best.celebrate .pill-icon { animation: trophy-wiggle 0.9s ease; }
+
+/* ---------- 4. Title ---------- */
+.title {
+  font-size: clamp(2.75rem, 8vw, 5.25rem);   /* about 44px → 84px */
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  /* Whole title gets a soft gradient so it feels lit from above */
+  background: linear-gradient(180deg, #ffffff 25%, #aab4c8 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 28px color-mix(in srgb, var(--state) 35%, transparent));
+}
+
+/* "1 — 100" with glowing lines on both sides */
+.range-label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+.range-label::before,
+.range-label::after {
+  content: "";
+  width: clamp(28px, 10vw, 70px);
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--state));
+  transition: background 0.5s ease;
+}
+.range-label::after { transform: scaleX(-1); }
+
+/* ---------- 5. The dial ---------- */
+.dial {
+  --heat: 0;                                   /* 0 = far away, 1 = on target */
+  position: relative;
+  width: min(86vw, 400px, 40vh);               /* fallback for older browsers */
+  width: min(86vw, 400px, 40svh);
+  aspect-ratio: 1;
+  margin: 26px 0 16px;
+  container-type: inline-size;                 /* lets us size the number relative to the dial */
+}
+.dial svg { width: 100%; height: 100%; overflow: visible; display: block; }
+
+.spin-ring {
+  fill: none;
+  stroke: var(--state);
+  stroke-opacity: 0.4;
+  stroke-width: 2;
+  stroke-dasharray: 2 14;
+  stroke-linecap: round;
+  transform-origin: 200px 200px;
+  animation: spin 50s linear infinite;
+  transition: stroke 0.5s ease;
+}
+
+.track { fill: none; stroke: var(--line); stroke-width: 14; stroke-linecap: round; }
+.range-arc {
+  fill: none;
+  stroke: var(--state);
+  stroke-width: 14;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 8px var(--state));
+  transition: stroke 0.5s ease;
+}
+
+.tick { stroke: #3a4258; stroke-width: 2; stroke-linecap: round; }
+.tick-major { stroke: #6b7590; stroke-width: 3; }
+.tick-label {
+  fill: var(--muted);
+  font-family: "Sora", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.core { fill: var(--panel); stroke: var(--line); stroke-width: 2; }
+
+/* Glow in the middle: brighter when the guess is closer */
+.heat { opacity: calc(0.05 + var(--heat) * 0.8); transition: opacity 0.7s ease; }
+.heat-stop-a { stop-color: var(--state); stop-opacity: 0.55; transition: stop-color 0.5s ease; }
+.heat-stop-b { stop-color: var(--state); stop-opacity: 0;    transition: stop-color 0.5s ease; }
+
+/* The needle rotates around the centre of the 400x400 drawing */
+#needle {
+  transform-origin: 200px 200px;
+  transform: rotate(-135deg);                                   /* starts at "1" */
+  transition: transform 0.9s cubic-bezier(0.2, 1.25, 0.35, 1);  /* slight overshoot = playful */
+  filter: drop-shadow(0 0 6px var(--state));
+}
+.needle-line { stroke: var(--state); stroke-width: 4; stroke-linecap: round; transition: stroke 0.5s ease; }
+.needle-knob { fill: var(--state); stroke: var(--bg); stroke-width: 4; transition: fill 0.5s ease; }
+
+/* Radar sweep inside the centre disc (the core is 50% of the dial wide) */
+.sweep {
+  position: absolute;
+  inset: 25%;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg 250deg, var(--state) 360deg);
+  opacity: 0.2;
+  animation: spin 5s linear infinite;
+  transition: opacity 0.6s ease;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(circle, transparent 0 30%, #000 31%);
+          mask-image: radial-gradient(circle, transparent 0 30%, #000 31%);
+}
+body[data-state="win"] .sweep { opacity: 0; }
+
+/* Ring that expands every time you lock in a guess */
+.ping {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--state);
+  opacity: 0;
+  pointer-events: none;
+}
+.ping.go { animation: ping 0.9s ease-out; }
+
+/* Big number sitting in the middle of the dial */
+.dial-number {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: clamp(3rem, 14vw, 4.5rem);        /* fallback */
+  font-size: 18cqw;                            /* ≈ 72px on a 400px dial */
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--text);
+  pointer-events: none;
+  transition: color 0.4s ease;
+}
+.dial-number.tick-pop { animation: pop 0.4s ease; }
+body[data-state="win"] .dial-number { color: var(--win); text-shadow: 0 0 30px rgba(52, 211, 153, 0.6); }
+
+.dial.shake { animation: shake 0.45s ease; }
+.dial.win svg { animation: win-pulse 0.9s ease; }
+
+/* ---------- 6. Result + temperature + hint ---------- */
+.result {
+  min-height: 1.2em;                          /* reserve space so nothing jumps around */
+  font-size: clamp(2rem, 6vw, 3.1rem);        /* about 32px → 50px */
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--muted);
+  transition: color 0.4s ease, text-shadow 0.4s ease;
+}
+body[data-state="low"]  .result,
+body[data-state="high"] .result,
+body[data-state="win"]  .result {
+  color: var(--state);
+  text-shadow: 0 0 34px color-mix(in srgb, var(--state) 55%, transparent);
+}
+.result.pop { animation: pop 0.4s ease; }
+
+/* Temperature badge: Freezing → Cold → Warm → Hot → Burning hot */
+.temp {
+  --t: #7dd3fc;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--t);
+  background: color-mix(in srgb, var(--t) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--t) 45%, transparent);
+}
+.temp[data-level="freezing"] { --t: #7dd3fc; }
+.temp[data-level="cold"]     { --t: #93a8ff; }
+.temp[data-level="warm"]     { --t: #fbbf24; }
+.temp[data-level="hot"]      { --t: #fb923c; }
+.temp[data-level="burning"]  { --t: #ff5a4d; }
+.temp[data-level="win"]      { --t: #34d399; }
+.temp.slide-in { animation: slide-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1); }
+
+.hint {
+  margin-top: 12px;
+  min-height: 1.5em;
+  font-size: 16px;
+  color: var(--muted);
+}
+.hint b { color: var(--text); font-weight: 800; font-size: 1.25em; padding: 0 2px; }
+.hint.error { color: var(--high); }
+
+/* ---------- 7. Input + buttons ---------- */
+.guess-form {
+  width: min(86vw, 360px);
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.input-wrap { position: relative; }
+
+.guess-input {
+  width: 100%;
+  height: 80px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  color: var(--text);
+  font-family: inherit;
+  font-size: clamp(2.2rem, 9vw, 3.1rem);
+  font-weight: 800;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.guess-input::placeholder { color: #2c3448; }
+.guess-input:focus {
+  border-color: color-mix(in srgb, var(--state) 60%, transparent);
+  box-shadow: 0 0 40px -6px color-mix(in srgb, var(--state) 45%, transparent);
+}
+.guess-input.shake { animation: shake 0.45s ease; }
+.guess-input::-webkit-outer-spin-button,
+.guess-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* Targeting corners around the input */
+.corner {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--state);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: all 0.35s cubic-bezier(0.2, 1.4, 0.4, 1), border-color 0.5s ease;
+}
+.tl { top: -9px;    left: -9px;  border-right: 0; border-bottom: 0; border-top-left-radius: 10px; }
+.tr { top: -9px;    right: -9px; border-left: 0;  border-bottom: 0; border-top-right-radius: 10px; }
+.bl { bottom: -9px; left: -9px;  border-right: 0; border-top: 0;    border-bottom-left-radius: 10px; }
+.br { bottom: -9px; right: -9px; border-left: 0;  border-top: 0;    border-bottom-right-radius: 10px; }
+/* On focus the brackets snap in around the input */
+.input-wrap:focus-within .corner { opacity: 1; }
+.input-wrap:focus-within .tl { top: -3px;    left: -3px; }
+.input-wrap:focus-within .tr { top: -3px;    right: -3px; }
+.input-wrap:focus-within .bl { bottom: -3px; left: -3px; }
+.input-wrap:focus-within .br { bottom: -3px; right: -3px; }
+
+/* Main button: gradient, glow, and a light sweep on hover */
+.btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: min(86vw, 360px);
+  height: 68px;
+  border: 0;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #67e8f9 0%, #22d3ee 50%, #06b6d4 100%);
+  color: #04141a;
+  font-family: inherit;
+  font-size: 1.2rem;                           /* about 19px */
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 14px 34px -12px rgba(34, 211, 238, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  animation: breathe 3.2s ease-in-out infinite;
+  transition: transform 0.18s ease, filter 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn svg { width: 24px; height: 24px; }
+.guess-form .btn { width: 100%; }
+
+/* Shine strip that slides across on hover */
+.btn::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: -60%;
+  width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.6s ease;
+}
+.btn:hover { transform: translateY(-3px); }
+.btn:hover::after { left: 130%; }
+.btn:active { transform: translateY(0) scale(0.96); filter: brightness(0.92); }
+.btn:focus-visible,
+.guess-input:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+
+/* Play again is green to match the win */
+.btn-win {
+  background: linear-gradient(135deg, #86efac 0%, #34d399 50%, #10b981 100%);
+  box-shadow: 0 14px 34px -12px rgba(52, 211, 153, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  margin-top: 24px;
+}
+
+[hidden] { display: none !important; }
+
+/* Confetti container sits in the middle of the dial */
+.burst { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+.piece {
+  position: absolute;
+  width: 10px; height: 14px;
+  border-radius: 3px;
+  animation: fly 1.5s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+.piece.round { width: 10px; height: 10px; border-radius: 50%; }
+
+/* ---------- 8. Animations ---------- */
+@keyframes drift-a { to { transform: translate(18vmax, 12vmax) scale(1.15); } }
+@keyframes drift-b { to { transform: translate(-16vmax, -10vmax) scale(1.2); } }
+@keyframes spin    { to { transform: rotate(360deg); } }
+
+@keyframes pop {
+  0%   { transform: scale(0.7); opacity: 0; }
+  60%  { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+@keyframes bump {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+
+@keyframes slide-in {
+  0%   { transform: translateY(12px) scale(0.85); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-12px); }
+  40% { transform: translateX(10px); }
+  60% { transform: translateX(-7px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes ping {
+  0%   { transform: scale(0.55); opacity: 0.9; }
+  100% { transform: scale(1.22); opacity: 0; }
+}
+
+@keyframes win-pulse {
+  0%   { transform: scale(1);    filter: drop-shadow(0 0 0 var(--win)); }
+  40%  { transform: scale(1.07); filter: drop-shadow(0 0 40px var(--win)); }
+  100% { transform: scale(1);    filter: drop-shadow(0 0 14px var(--win)); }
+}
+
+@keyframes fly {
+  0%   { transform: translate(0, 0) rotate(0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.6); opacity: 0; }
+}
+
+/* Gentle idle glow so the main button feels alive */
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 14px 34px -12px rgba(34, 211, 238, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+  50%      { box-shadow: 0 16px 44px -8px rgba(34, 211, 238, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
+}
+
+@keyframes pill-glow {
+  0%, 100% { box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.8); }
+  30%      { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.25), 0 0 50px rgba(52, 211, 153, 0.55); }
+}
+
+@keyframes trophy-wiggle {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-18deg) scale(1.15); }
+  50% { transform: rotate(14deg) scale(1.15); }
+  75% { transform: rotate(-8deg); }
+}
+
+/* ---------- 9. Responsive + reduced motion ---------- */
+@media (max-width: 480px) {
+  .stats { padding: 14px 14px; }
+  .pill { gap: 10px; padding: 6px 14px 6px 6px; }
+  .pill-best { padding: 6px 6px 6px 14px; }
+  .pill-icon { width: 38px; height: 38px; }
+  .pill-icon svg { width: 20px; height: 20px; }
+  .pill-value { font-size: 24px; }
+  .pill-label { font-size: 12px; }
+  .app { padding-top: 88px; }
+  .range-label { font-size: 16px; }
+}
+
+/* If someone asks their device to reduce motion, switch decorative motion off */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- 10. Signal Lock content layer ---------- */
+.eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: var(--state);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  transition: color 0.5s ease;
+}
+.eyebrow-line {
+  width: 28px;
+  height: 1px;
+  background: var(--state);
+  opacity: 0.7;
+}
+.subtitle {
+  margin-top: 13px;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.mission-card {
+  width: min(92vw, 560px);
+  margin-top: 22px;
+  padding: 17px 20px 16px;
+  text-align: left;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 18px 50px -30px #000;
+  backdrop-filter: blur(16px);
+  transition: opacity .45s ease, transform .45s ease, border-color .45s ease;
+}
+.mission-card.completed {
+  opacity: .48;
+  transform: translateY(-8px) scale(.98);
+}
+.mission-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--state);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .17em;
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--state);
+  box-shadow: 0 0 12px var(--state);
+  animation: status-blink 1.8s ease-in-out infinite;
+}
+.mission-code {
+  margin-left: auto;
+  color: #566078;
+}
+.mission-title {
+  margin-top: 11px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 800;
+}
+.mission-copy {
+  max-width: 500px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.mission-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,.07);
+  color: #69748b;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+}
+.mission-meta b {
+  color: var(--state);
+  font-size: 11px;
+  transition: color .5s ease;
+}
+.intel-strip {
+  width: min(92vw, 560px);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  align-items: center;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 14px;
+  background: rgba(8,9,13,.55);
+  opacity: .9;
+  transition: border-color .5s ease, opacity .3s ease;
+}
+.intel-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+  min-width: 0;
+}
+.intel-label {
+  color: #626d82;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.intel-item strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.intel-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255,255,255,.08);
+}
+.lock-mark {
+  position: absolute;
+  inset: 35%;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(.65);
+}
+.lock-mark span:first-child {
+  position: absolute;
+  width: 34px;
+  height: 28px;
+  border: 3px solid var(--win);
+  border-radius: 7px;
+}
+.lock-mark span:last-child {
+  position: absolute;
+  width: 18px;
+  height: 17px;
+  top: 16%;
+  border: 3px solid var(--win);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+}
+.dial.locked .lock-mark {
+  animation: lock-confirm .9s cubic-bezier(.2,1.3,.4,1) forwards;
+}
+.complete-card {
+  width: min(92vw, 440px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 22px;
+  padding: 16px 18px;
+  text-align: left;
+  border: 1px solid rgba(52,211,153,.35);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(52,211,153,.12), rgba(255,255,255,.025));
+  box-shadow: 0 0 45px -25px rgba(52,211,153,.7), inset 0 1px 0 rgba(255,255,255,.08);
+  animation: complete-in .6s cubic-bezier(.2,1.3,.4,1);
+}
+.complete-icon {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: var(--win);
+  background: rgba(52,211,153,.1);
+  box-shadow: inset 0 0 0 1px rgba(52,211,153,.3);
+}
+.complete-icon svg { width: 27px; height: 27px; }
+.complete-kicker {
+  color: var(--win);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .18em;
+}
+.complete-card h2 {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 800;
+}
+.complete-card p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+@keyframes status-blink {
+  0%,100% { opacity: .45; transform: scale(.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+@keyframes lock-confirm {
+  0% { opacity: 0; transform: scale(.65); }
+  55% { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes complete-in {
+  0% { opacity: 0; transform: translateY(14px) scale(.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (max-width: 600px) {
+  .subtitle { font-size: 13px; }
+  .mission-card { padding: 15px; }
+  .mission-copy { font-size: 12px; }
+  .mission-meta { gap: 7px 12px; font-size: 8px; }
+  .intel-strip { padding: 9px 8px; }
+  .intel-item strong { font-size: 10px; }
+  .intel-label { font-size: 7px; }
+}
